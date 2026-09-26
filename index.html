@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vault — Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="shared.css">
+    <style>
+        .hero { text-align: center; padding: 5rem 2rem 3rem; position: relative; z-index: 2; }
+        .hero h1 {
+            font-size: 5rem; font-weight: 700; letter-spacing: -3px; line-height: 1;
+            background: linear-gradient(135deg, #e2e8f0 0%, #60a5fa 40%, #a78bfa 70%, #34d399 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 60px rgba(96,165,250,0.3));
+            margin-bottom: 1rem;
+        }
+        .hero p { color: var(--muted); font-size: 1.15rem; max-width: 500px; margin: 0 auto 3rem; line-height: 1.7; }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem 4rem;
+            position: relative; z-index: 2;
+        }
+
+        .feature-card {
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 2rem;
+            text-decoration: none;
+            color: var(--text);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; flex-direction: column; gap: 1rem;
+            position: relative; overflow: hidden;
+            backdrop-filter: blur(16px);
+        }
+
+        .feature-card::before {
+            content: ''; position: absolute; inset: 0;
+            opacity: 0; transition: opacity 0.3s ease;
+        }
+        .feature-card.blue::before  { background: radial-gradient(circle at 30% 30%, rgba(37,99,235,0.15), transparent 60%); }
+        .feature-card.green::before { background: radial-gradient(circle at 30% 30%, rgba(16,185,129,0.15), transparent 60%); }
+        .feature-card.purple::before{ background: radial-gradient(circle at 30% 30%, rgba(139,92,246,0.15), transparent 60%); }
+        .feature-card.amber::before { background: radial-gradient(circle at 30% 30%, rgba(245,158,11,0.15), transparent 60%); }
+
+        .feature-card:hover { transform: translateY(-6px); border-color: rgba(255,255,255,0.15); }
+        .feature-card:hover::before { opacity: 1; }
+        .feature-card.blue:hover  { box-shadow: 0 20px 60px -15px rgba(37,99,235,0.4); }
+        .feature-card.green:hover { box-shadow: 0 20px 60px -15px rgba(16,185,129,0.4); }
+        .feature-card.purple:hover{ box-shadow: 0 20px 60px -15px rgba(139,92,246,0.4); }
+        .feature-card.amber:hover { box-shadow: 0 20px 60px -15px rgba(245,158,11,0.4); }
+
+        .card-icon { font-size: 2.5rem; }
+        .card-title { font-size: 1.3rem; font-weight: 700; }
+        .card-desc { font-size: 0.9rem; color: var(--muted); line-height: 1.6; }
+        .card-arrow { margin-top: auto; font-size: 1.2rem; opacity: 0.4; transition: opacity 0.2s, transform 0.2s; }
+        .feature-card:hover .card-arrow { opacity: 1; transform: translateX(6px); }
+
+        .badge-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .badge {
+            font-family: 'Space Mono', monospace; font-size: 0.65rem;
+            padding: 0.2rem 0.5rem; border-radius: 6px;
+            background: rgba(255,255,255,0.06); color: var(--muted);
+        }
+
+        .metrics-bar {
+            display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap;
+            padding: 2rem; max-width: 800px; margin: 0 auto;
+            position: relative; z-index: 2;
+        }
+        .metric { text-align: center; }
+        .metric-val { font-family: 'Space Mono', monospace; font-size: 2rem; font-weight: 700; }
+        .metric-val.c1 { color: var(--cyan); text-shadow: 0 0 20px rgba(6,182,212,0.5); }
+        .metric-val.c2 { color: var(--green); text-shadow: 0 0 20px rgba(16,185,129,0.5); }
+        .metric-val.c3 { color: var(--purple); text-shadow: 0 0 20px rgba(139,92,246,0.5); }
+        .metric-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 0.25rem; }
+    </style>
+</head>
+<body>
+<canvas id="particles"></canvas>
+<nav class="nav">
+    <a href="index.html" class="nav-logo">🔒 Vault</a>
+    <div class="nav-links">
+        <a href="index.html" class="nav-link active">Dashboard</a>
+        <a href="upload.html" class="nav-link">Upload</a>
+        <a href="topology.html" class="nav-link">Topology</a>
+        <a href="repair.html" class="nav-link">Self-Heal</a>
+        <a href="logs.html" class="nav-link">Logs</a>
+    </div>
+</nav>
+
+<div class="hero">
+    <h1>VAULT</h1>
+    <p>Fault-tolerant distributed object storage. Quorum replication, self-healing, and data integrity — built for resilience.</p>
+</div>
+
+<div class="metrics-bar">
+    <div class="metric"><div class="metric-val c1">N=3</div><div class="metric-label">Replication Factor</div></div>
+    <div class="metric"><div class="metric-val c2">W=2</div><div class="metric-label">Write Quorum</div></div>
+    <div class="metric"><div class="metric-val c3">R=2</div><div class="metric-label">Read Quorum</div></div>
+    <div class="metric"><div class="metric-val c1">SHA-256</div><div class="metric-label">Integrity Check</div></div>
+    <div class="metric"><div class="metric-val c2">10s</div><div class="metric-label">Repair Interval</div></div>
+</div>
+
+<div class="feature-grid">
+    <a href="upload.html" class="feature-card blue">
+        <div class="card-icon">☁️</div>
+        <div class="card-title">Object Upload</div>
+        <div class="card-desc">Trigger a distributed quorum write. Watch data replicate concurrently to 3 storage nodes in real time.</div>
+        <div class="badge-row">
+            <span class="badge">W=2 Quorum</span>
+            <span class="badge">Concurrent Replication</span>
+            <span class="badge">SHA-256</span>
+        </div>
+        <div class="card-arrow">→</div>
+    </a>
+
+    <a href="topology.html" class="feature-card green">
+        <div class="card-icon">🌐</div>
+        <div class="card-title">Cluster Topology</div>
+        <div class="card-desc">Live visualization of the cluster. Kill nodes and watch quorum logic adapt. Survive 1-node failures gracefully.</div>
+        <div class="badge-row">
+            <span class="badge">Node Health</span>
+            <span class="badge">Fault Injection</span>
+            <span class="badge">R=2 Failover</span>
+        </div>
+        <div class="card-arrow">→</div>
+    </a>
+
+    <a href="repair.html" class="feature-card purple">
+        <div class="card-icon">🔧</div>
+        <div class="card-title">Self-Healing</div>
+        <div class="card-desc">Simulate node failures and watch the anti-entropy background repair loop automatically restore full replication.</div>
+        <div class="badge-row">
+            <span class="badge">Anti-Entropy</span>
+            <span class="badge">Auto-Repair</span>
+            <span class="badge">Under-Replication</span>
+        </div>
+        <div class="card-arrow">→</div>
+    </a>
+
+    <a href="logs.html" class="feature-card amber">
+        <div class="card-icon">📋</div>
+        <div class="card-title">System Logs</div>
+        <div class="card-desc">Real-time event stream from all cluster components. Gateway, metadata, and storage node activity in one view.</div>
+        <div class="badge-row">
+            <span class="badge">Event Stream</span>
+            <span class="badge">All Components</span>
+            <span class="badge">Filterable</span>
+        </div>
+        <div class="card-arrow">→</div>
+    </a>
+</div>
+
+<script src="shared.js"></script>
+</body>
+</html>

@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vault — Self-Healing</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="shared.css">
+    <style>
+        .heal-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+
+        /* Step-by-step tracker */
+        .step-list { display: flex; flex-direction: column; gap: 0; }
+
+        .step-item {
+            display: flex; gap: 1rem; padding: 1.25rem 0;
+            border-bottom: 1px solid var(--glass-border);
+            position: relative;
+        }
+        .step-item:last-child { border-bottom: none; }
+
+        .step-num {
+            width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'Space Mono', monospace; font-size: 0.85rem; font-weight: 700;
+            border: 1px solid var(--glass-border); background: rgba(255,255,255,0.03);
+            color: var(--muted); transition: all 0.4s ease;
+        }
+
+        .step-item.active .step-num   { border-color: var(--cyan); color: var(--cyan); background: rgba(6,182,212,0.1); box-shadow: 0 0 15px rgba(6,182,212,0.3); }
+        .step-item.done .step-num     { border-color: var(--green); color: var(--green); background: rgba(16,185,129,0.1); }
+        .step-item.error-step .step-num { border-color: var(--red); color: var(--red); background: rgba(239,68,68,0.1); }
+
+        .step-body { flex: 1; }
+        .step-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.2rem; transition: color 0.3s; }
+        .step-desc { font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
+        .step-item.active .step-title { color: var(--cyan); }
+        .step-item.done  .step-title  { color: var(--green); }
+        .step-item.error-step .step-title { color: var(--red); }
+
+        .step-status {
+            font-family: 'Space Mono', monospace; font-size: 0.7rem;
+            margin-top: 0.5rem; display: none;
+            padding: 0.25rem 0.6rem; border-radius: 6px; width: fit-content;
+        }
+        .step-item.active .step-status, .step-item.done .step-status { display: block; }
+        .step-item.active .step-status { background: rgba(6,182,212,0.1); color: var(--cyan); }
+        .step-item.done   .step-status { background: rgba(16,185,129,0.1); color: var(--green); }
+
+        /* Replica grid */
+        .replica-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;
+            padding: 1.5rem;
+        }
+
+        .replica-card {
+            background: rgba(255,255,255,0.02); border: 1px solid var(--glass-border);
+            border-radius: 16px; padding: 1.25rem; text-align: center;
+            transition: all 0.4s cubic-bezier(0.4,0,0.2,1);
+        }
+
+        .replica-card.healthy { border-color: rgba(16,185,129,0.4); box-shadow: 0 0 20px rgba(16,185,129,0.1); }
+        .replica-card.dead    { border-color: rgba(239,68,68,0.4); opacity: 0.55; filter: grayscale(0.8); }
+        .replica-card.repairing { border-color: rgba(6,182,212,0.8); box-shadow: 0 0 30px rgba(6,182,212,0.3); animation: repairPulse 1s infinite; }
+        .replica-card.repaired  { border-color: rgba(139,92,246,0.7); box-shadow: 0 0 30px rgba(139,92,246,0.3); }
+
+        @keyframes repairPulse { 0%,100%{box-shadow:0 0 20px rgba(6,182,212,0.3)} 50%{box-shadow:0 0 40px rgba(6,182,212,0.7)} }
+
+        .rc-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+        .rc-name { font-weight: 600; font-size: 0.85rem; }
+        .rc-state { font-family: 'Space Mono', monospace; font-size: 0.68rem; color: var(--muted); margin-top: 0.25rem; }
+
+        .rc-chunks {
+            margin-top: 0.75rem; display: flex; gap: 3px; justify-content: center; flex-wrap: wrap;
+            min-height: 20px; align-items: center;
+        }
+        .chunk-block {
+            width: 8px; height: 14px; border-radius: 3px; background: var(--blue);
+            box-shadow: 0 0 6px rgba(37,99,235,0.5);
+            animation: popBlock 0.3s cubic-bezier(0.175,0.885,0.32,1.275);
+        }
+        .chunk-block.missing  { background: rgba(255,255,255,0.1); box-shadow: none; }
+        .chunk-block.repaired { background: var(--purple); box-shadow: 0 0 6px rgba(139,92,246,0.5); }
+
+        @keyframes popBlock { 0%{transform:scale(0);opacity:0} 100%{transform:scale(1);opacity:1} }
+
+        /* Scenario selector */
+        .scenario-btn {
+            padding: 0.6rem 1rem; border-radius: 10px; border: 1px solid var(--glass-border);
+            background: rgba(255,255,255,0.04); color: var(--muted);
+            font-family: 'Space Grotesk', sans-serif; font-size: 0.85rem; font-weight: 500;
+            cursor: pointer; transition: all 0.2s ease;
+        }
+        .scenario-btn:hover, .scenario-btn.active {
+            background: rgba(255,255,255,0.08); color: var(--text); border-color: rgba(255,255,255,0.15);
+        }
+    </style>
+</head>
+<body>
+<canvas id="particles"></canvas>
+
+<nav class="nav">
+    <a href="index.html" class="nav-logo">🔒 Vault</a>
+    <div class="nav-links">
+        <a href="index.html" class="nav-link">Dashboard</a>
+        <a href="upload.html" class="nav-link">Upload</a>
+        <a href="topology.html" class="nav-link">Topology</a>
+        <a href="repair.html" class="nav-link active">Self-Heal</a>
+        <a href="logs.html" class="nav-link">Logs</a>
+    </div>
+</nav>
+
+<div class="page-header">
+    <div class="breadcrumb">Cluster → Self-Healing</div>
+    <h2>Anti-Entropy Repair</h2>
+    <p>When a node fails and recovers, the background repair loop detects under-replicated chunks and automatically restores full N=3 replication.</p>
+</div>
+
+<div class="page-body">
+    <div style="display:flex; gap:0.75rem; margin-bottom:1.5rem; flex-wrap:wrap; align-items:center;">
+        <span style="font-size:0.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin-right:0.5rem;">Scenario:</span>
+        <button class="scenario-btn active" onclick="selectScenario('single')">Single Node Failure</button>
+        <button class="scenario-btn" onclick="selectScenario('double')">Double Node Failure</button>
+        <button class="btn btn-primary" id="runBtn" onclick="runScenario()" style="margin-left:auto;">▶ &nbsp;Run Simulation</button>
+        <button class="btn btn-ghost" onclick="resetScenario()">↺ &nbsp;Reset</button>
+    </div>
+
+    <div class="heal-layout">
+        <!-- Steps panel -->
+        <div class="card" style="padding: 1.5rem;">
+            <div class="card-header" style="margin-bottom: 0;">
+                <span class="card-title">Repair Workflow</span>
+                <span id="overallStatus" class="chip"><span class="chip-dot cyan"></span>READY</span>
+            </div>
+            <div class="step-list" id="stepList">
+                <div class="step-item" id="step-1">
+                    <div class="step-num">1</div>
+                    <div class="step-body">
+                        <div class="step-title">Initial State</div>
+                        <div class="step-desc">All storage nodes healthy. Each chunk replicated 3×. System fully operational.</div>
+                        <div class="step-status" id="ss-1">HEALTHY</div>
+                    </div>
+                </div>
+                <div class="step-item" id="step-2">
+                    <div class="step-num">2</div>
+                    <div class="step-body">
+                        <div class="step-title">Node Failure</div>
+                        <div class="step-desc">storage-1 crashes. Heartbeat lost. Metadata marks node DEAD.</div>
+                        <div class="step-status" id="ss-2">NODE DEAD</div>
+                    </div>
+                </div>
+                <div class="step-item" id="step-3">
+                    <div class="step-num">3</div>
+                    <div class="step-body">
+                        <div class="step-title">Under-Replication Detected</div>
+                        <div class="step-desc">Anti-entropy loop fires. Identifies chunks with &lt; 3 healthy replicas.</div>
+                        <div class="step-status" id="ss-3">LOOP FIRED</div>
+                    </div>
+                </div>
+                <div class="step-item" id="step-4">
+                    <div class="step-num">4</div>
+                    <div class="step-body">
+                        <div class="step-title">Node Rejoins</div>
+                        <div class="step-desc">storage-1 comes back online. Cluster welcomes node back into replication group.</div>
+                        <div class="step-status" id="ss-4">REJOINED</div>
+                    </div>
+                </div>
+                <div class="step-item" id="step-5">
+                    <div class="step-num">5</div>
+                    <div class="step-body">
+                        <div class="step-title">Repair Coordinated</div>
+                        <div class="step-desc">Metadata orchestrates chunk copy from healthy source node to recovered node.</div>
+                        <div class="step-status" id="ss-5">REPAIRING…</div>
+                    </div>
+                </div>
+                <div class="step-item" id="step-6">
+                    <div class="step-num">6</div>
+                    <div class="step-body">
+                        <div class="step-title">Full Replication Restored</div>
+                        <div class="step-desc">All chunks back to N=3 replicas. Cluster OPERATIONAL. SHA-256 verified.</div>
+                        <div class="step-status" id="ss-6">HEALED ✓</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Visual replica grid + log -->
+        <div style="display:flex; flex-direction:column; gap:1.5rem;">
+            <div class="card" style="padding:0;">
+                <div class="card-header" style="padding:1.5rem 1.5rem 0; margin-bottom:0;">
+                    <span class="card-title">Replica State</span>
+                    <span id="replicaCount" style="font-family:'Space Mono',monospace; font-size:0.8rem; color:var(--muted);">3 × 3 replicas</span>
+                </div>
+                <div class="replica-grid" id="replicaGrid">
+                    <!-- Storage 1 -->
+                    <div class="replica-card healthy" id="rc-s1">
+                        <div class="rc-icon">💾</div>
+                        <div class="rc-name">storage-1</div>
+                        <div class="rc-state" id="rc-s1-state">HEALTHY</div>
+                        <div class="rc-chunks" id="chunks-s1">
+                            <div class="chunk-block"></div>
+                            <div class="chunk-block"></div>
+                            <div class="chunk-block"></div>
+                        </div>
+                    </div>
+                    <!-- Storage 2 -->
+                    <div class="replica-card healthy" id="rc-s2">
+                        <div class="rc-icon">💾</div>
+                        <div class="rc-name">storage-2</div>
+                        <div class="rc-state" id="rc-s2-state">HEALTHY</div>
+                        <div class="rc-chunks" id="chunks-s2">
+                            <div class="chunk-block"></div>
+                            <div class="chunk-block"></div>
+                            <div class="chunk-block"></div>
+                        </div>
+                    </div>
+                    <!-- Storage 3 -->
+                    <div class="replica-card healthy" id="rc-s3">
+                        <div class="rc-icon">💾</div>
+                        <div class="rc-name">storage-3</div>
+                        <div class="rc-state" id="rc-s3-state">HEALTHY</div>
+                        <div class="rc-chunks" id="chunks-s3">
+                            <div class="chunk-block"></div>
+                            <div class="chunk-block"></div>
+                            <div class="chunk-block"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="padding:0;">
+                <div class="terminal-bar">
+                    <div class="term-dot" style="background:#ef4444"></div>
+                    <div class="term-dot" style="background:#f59e0b"></div>
+                    <div class="term-dot" style="background:#10b981"></div>
+                    <span style="margin-left:0.5rem">repair.log</span>
+                </div>
+                <div class="terminal-body" id="repairLog" style="height:220px; overflow-y:auto;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="shared.js"></script>
+<script>
+    const log = (m, t='INFO') => appendLog('repairLog', m, t);
+    let scenario = 'single';
+    let running = false;
+
+    function selectScenario(s) {
+        scenario = s;
+        document.querySelectorAll('.scenario-btn').forEach((b, i) => {
+            b.classList.toggle('active', (i===0 && s==='single') || (i===1 && s==='double'));
+        });
+        resetScenario();
+    }
+
+    function setStep(num, state) {
+        const el = document.getElementById('step-' + num);
+        el.className = 'step-item ' + state;
+    }
+
+    function setReplica(id, state, stateText) {
+        const card = document.getElementById('rc-' + id);
+        card.className = 'replica-card ' + state;
+        document.getElementById('rc-' + id + '-state').textContent = stateText;
+    }
+
+    function setChunks(id, count, type = 'normal') {
+        const el = document.getElementById('chunks-' + id);
+        el.innerHTML = '';
+        for (let i = 0; i < 3; i++) {
+            const b = document.createElement('div');
+            if (i < count) {
+                b.className = 'chunk-block' + (type === 'repaired' ? ' repaired' : '');
+            } else {
+                b.className = 'chunk-block missing';
+            }
+            el.appendChild(b);
+        }
+    }
+
+    function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    function resetScenario() {
+        if (running) return;
+        for (let i = 1; i <= 6; i++) setStep(i, '');
+        setReplica('s1', 'healthy', 'HEALTHY'); setChunks('s1', 3);
+        setReplica('s2', 'healthy', 'HEALTHY'); setChunks('s2', 3);
+        setReplica('s3', 'healthy', 'HEALTHY'); setChunks('s3', 3);
+        document.getElementById('replicaCount').textContent = '3 × 3 replicas';
+        document.getElementById('overallStatus').innerHTML = '<span class="chip-dot cyan"></span>READY';
+        document.getElementById('repairLog').innerHTML = '';
+        log('Scenario reset. Click Run Simulation to start.', 'DEBUG');
+    }
+
+    async function runScenario() {
+        if (running) return;
+        running = true;
+        document.getElementById('runBtn').disabled = true;
+
+        const isSingle = scenario === 'single';
+        const failedNodes = isSingle ? ['s1'] : ['s1','s2'];
+
+        // Step 1
+        setStep(1, 'done');
+        log('Cluster healthy — all chunks at N=3 replication', 'OK');
+        await delay(600);
+
+        // Step 2: Failure
+        setStep(2, 'active');
+        document.getElementById('overallStatus').innerHTML = '<span class="chip-dot red"></span>DEGRADED';
+        for (const n of failedNodes) {
+            setReplica(n, 'dead', 'DEAD');
+            setChunks(n, 0);
+            log(`storage-${n.slice(1)} — heartbeat LOST, node DEAD`, 'FAIL');
+            await delay(400);
+        }
+        await delay(600);
+        setStep(2, 'done');
+
+        // Step 3: Detection
+        setStep(3, 'active');
+        log('[Anti-Entropy] Repair loop fired at T+10s', 'WARN');
+        await delay(500);
+        const missing = failedNodes.length;
+        log(`[Anti-Entropy] Detected ${missing * 3} under-replicated chunks across ${missing} node(s)`, 'WARN');
+        await delay(800);
+        setStep(3, 'done');
+
+        // Step 4: Rejoin
+        setStep(4, 'active');
+        for (const n of failedNodes) {
+            log(`storage-${n.slice(1)} — coming back online...`, 'INFO');
+            await delay(300);
+        }
+        await delay(500);
+        for (const n of failedNodes) {
+            setReplica(n, 'repairing', 'REPAIRING');
+            log(`storage-${n.slice(1)} — rejoined cluster, awaiting repair`, 'OK');
+        }
+        setStep(4, 'done');
+
+        // Step 5: Repair
+        setStep(5, 'active');
+        document.getElementById('overallStatus').innerHTML = '<span class="chip-dot amber"></span>REPAIRING';
+        for (const n of failedNodes) {
+            const srcNode = ['s1','s2','s3'].find(x => !failedNodes.includes(x));
+            log(`[Repair] Copy chunks: storage-${srcNode.slice(1)} → storage-${n.slice(1)}`, 'HEAL');
+            await delay(700);
+            for (let c = 1; c <= 3; c++) {
+                setChunks(n, c, 'repaired');
+                await delay(300);
+            }
+        }
+        setStep(5, 'done');
+        await delay(400);
+
+        // Step 6: Done
+        setStep(6, 'done');
+        for (const n of failedNodes) {
+            setReplica(n, 'repaired', 'HEALED ✓');
+        }
+        document.getElementById('overallStatus').innerHTML = '<span class="chip-dot green"></span>OPERATIONAL';
+        document.getElementById('replicaCount').textContent = '3 × 3 replicas';
+        log('[Self-Heal] Repair complete — all chunks at N=3 replication ✓', 'HEAL');
+        Store.inc('repairCount', failedNodes.length * 3);
+
+        running = false;
+        document.getElementById('runBtn').disabled = false;
+    }
+
+    log('Anti-entropy repair simulator ready.', 'INFO');
+    log('Select a failure scenario and click Run Simulation.', 'DEBUG');
+</script>
+</body>
+</html>

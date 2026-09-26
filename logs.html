@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vault — System Logs</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="shared.css">
+    <style>
+        .log-layout { display: flex; flex-direction: column; gap: 1.5rem; }
+
+        /* Filter bar */
+        .filter-bar {
+            display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;
+        }
+
+        .filter-btn {
+            padding: 0.35rem 0.9rem; border-radius: 100px;
+            border: 1px solid var(--glass-border);
+            background: rgba(255,255,255,0.04);
+            font-family: 'Space Mono', monospace; font-size: 0.72rem;
+            cursor: pointer; transition: all 0.2s ease; color: var(--muted);
+        }
+        .filter-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+        .filter-btn.active { color: var(--text); background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.25); }
+        .filter-btn.INFO  { --c: var(--cyan); }
+        .filter-btn.OK    { --c: var(--green); }
+        .filter-btn.WARN  { --c: var(--amber); }
+        .filter-btn.FAIL  { --c: var(--red); }
+        .filter-btn.HEAL  { --c: var(--purple); }
+        .filter-btn.active { color: var(--c, var(--text)); border-color: var(--c, rgba(255,255,255,0.25)); background: rgba(255,255,255,0.05); }
+
+        /* Live log table */
+        .log-table-wrap {
+            flex: 1;
+        }
+
+        .log-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.8rem;
+        }
+
+        .log-table th {
+            text-align: left; padding: 0.75rem 1rem;
+            font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1.5px;
+            color: var(--muted); font-weight: 600;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .log-table td {
+            padding: 0.6rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.03);
+            vertical-align: top;
+        }
+
+        .log-table tr { opacity: 0; animation: slideIn 0.25s forwards; }
+        .log-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+        .log-table .ts { color: var(--muted); white-space: nowrap; }
+        .log-table .component { color: var(--muted); white-space: nowrap; }
+        .log-table .tag { font-weight: 700; white-space: nowrap; }
+        .tag.INFO { color: var(--cyan); }
+        .tag.OK   { color: var(--green); }
+        .tag.WARN { color: var(--amber); }
+        .tag.FAIL { color: var(--red); }
+        .tag.HEAL { color: var(--purple); }
+        .tag.DEBUG { color: var(--muted); }
+
+        .log-table .msg { color: #cbd5e1; line-height: 1.5; word-break: break-word; }
+
+        /* Stats row */
+        .log-stats {
+            display: flex; gap: 2rem; flex-wrap: wrap;
+        }
+        .ls { text-align: center; }
+        .ls-val { font-family: 'Space Mono', monospace; font-size: 1.5rem; font-weight: 700; }
+        .ls-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 0.2rem; }
+
+        /* Simulate Events btn */
+        .sim-panel { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
+
+        .table-container { max-height: 480px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+<canvas id="particles"></canvas>
+
+<nav class="nav">
+    <a href="index.html" class="nav-logo">🔒 Vault</a>
+    <div class="nav-links">
+        <a href="index.html" class="nav-link">Dashboard</a>
+        <a href="upload.html" class="nav-link">Upload</a>
+        <a href="topology.html" class="nav-link">Topology</a>
+        <a href="repair.html" class="nav-link">Self-Heal</a>
+        <a href="logs.html" class="nav-link active">Logs</a>
+    </div>
+</nav>
+
+<div class="page-header">
+    <div class="breadcrumb">Cluster → System Logs</div>
+    <h2>System Event Log</h2>
+    <p>Aggregated event stream from all cluster components — API Gateway, Metadata Leader, and Storage nodes.</p>
+</div>
+
+<div class="page-body">
+    <div class="log-layout">
+
+        <!-- Stats + controls -->
+        <div class="card" style="padding: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1.5rem;">
+            <div class="log-stats">
+                <div class="ls"><div class="ls-val" id="cnt-total" style="color:var(--text)">0</div><div class="ls-label">Total Events</div></div>
+                <div class="ls"><div class="ls-val" id="cnt-ok" style="color:var(--green)">0</div><div class="ls-label">Success</div></div>
+                <div class="ls"><div class="ls-val" id="cnt-fail" style="color:var(--red)">0</div><div class="ls-label">Failures</div></div>
+                <div class="ls"><div class="ls-val" id="cnt-heal" style="color:var(--purple)">0</div><div class="ls-label">Repairs</div></div>
+            </div>
+
+            <div class="sim-panel">
+                <button class="btn btn-ghost" onclick="simulateEvents()">⚡ Simulate Events</button>
+                <button class="btn btn-ghost" onclick="clearLogs()">🗑 Clear</button>
+                <label class="chip" style="cursor:pointer; gap:0.5rem; user-select:none;">
+                    <input type="checkbox" id="autoScroll" checked style="accent-color:var(--cyan)">
+                    <span>Auto-scroll</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="filter-bar">
+            <span style="font-size: 0.75rem; color:var(--muted); text-transform:uppercase; letter-spacing:1px;">Filter:</span>
+            <button class="filter-btn active" onclick="setFilter('ALL')" data-tag="ALL">ALL</button>
+            <button class="filter-btn INFO"  onclick="setFilter('INFO')"  data-tag="INFO">INFO</button>
+            <button class="filter-btn OK"    onclick="setFilter('OK')"    data-tag="OK">OK</button>
+            <button class="filter-btn WARN"  onclick="setFilter('WARN')"  data-tag="WARN">WARN</button>
+            <button class="filter-btn FAIL"  onclick="setFilter('FAIL')"  data-tag="FAIL">FAIL</button>
+            <button class="filter-btn HEAL"  onclick="setFilter('HEAL')"  data-tag="HEAL">HEAL</button>
+            <input type="text" id="searchInput" placeholder="Search logs…" oninput="applySearch()"
+                style="margin-left:auto; padding:0.35rem 0.9rem; border-radius:100px; border:1px solid var(--glass-border); background:rgba(255,255,255,0.04); color:var(--text); font-family:'Space Mono',monospace; font-size:0.75rem; outline:none; width:200px;">
+        </div>
+
+        <!-- Log table -->
+        <div class="card" style="padding: 0; overflow: hidden;">
+            <div class="table-container" id="tableContainer">
+                <table class="log-table">
+                    <thead>
+                        <tr>
+                            <th style="width:90px">Time</th>
+                            <th style="width:110px">Component</th>
+                            <th style="width:60px">Level</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="shared.js"></script>
+<script>
+    let allLogs = [];
+    let activeFilter = 'ALL';
+    let searchTerm = '';
+    const counts = { total: 0, ok: 0, fail: 0, heal: 0 };
+
+    const COMPONENTS = ['api-gateway', 'metadata-1', 'storage-1', 'storage-2', 'storage-3'];
+
+    function addLogRow(ts, component, tag, msg, animate = true) {
+        allLogs.push({ ts, component, tag, msg });
+        counts.total++;
+        if (tag === 'OK')   counts.ok++;
+        if (tag === 'FAIL') counts.fail++;
+        if (tag === 'HEAL') counts.heal++;
+        updateCounts();
+
+        // Persist to shared store
+        const feed = Store.get('logFeed', []);
+        feed.push({ ts, tag, msg: `[${component}] ${msg}` });
+        if (feed.length > 300) feed.shift();
+        Store.set('logFeed', feed);
+
+        renderTable();
+    }
+
+    function updateCounts() {
+        document.getElementById('cnt-total').textContent = counts.total;
+        document.getElementById('cnt-ok').textContent = counts.ok;
+        document.getElementById('cnt-fail').textContent = counts.fail;
+        document.getElementById('cnt-heal').textContent = counts.heal;
+    }
+
+    function setFilter(tag) {
+        activeFilter = tag;
+        document.querySelectorAll('.filter-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.tag === tag);
+        });
+        renderTable();
+    }
+
+    function applySearch() {
+        searchTerm = document.getElementById('searchInput').value.toLowerCase();
+        renderTable();
+    }
+
+    function renderTable() {
+        const tbody = document.getElementById('logBody');
+        tbody.innerHTML = '';
+        const filtered = allLogs.filter(l => {
+            if (activeFilter !== 'ALL' && l.tag !== activeFilter) return false;
+            if (searchTerm && !l.msg.toLowerCase().includes(searchTerm) && !l.component.toLowerCase().includes(searchTerm)) return false;
+            return true;
+        });
+
+        filtered.slice(-200).forEach(l => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="ts">${l.ts}</td>
+                <td class="component">${l.component}</td>
+                <td class="tag ${l.tag}">${l.tag}</td>
+                <td class="msg">${l.msg}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        if (document.getElementById('autoScroll').checked) {
+            const c = document.getElementById('tableContainer');
+            c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' });
+        }
+    }
+
+    function clearLogs() {
+        allLogs = []; counts.total = 0; counts.ok = 0; counts.fail = 0; counts.heal = 0;
+        updateCounts(); renderTable();
+    }
+
+    // Simulate a stream of realistic cluster events
+    function simulateEvents() {
+        const events = [
+            ['api-gateway', 'INFO',  'PUT /objects/report-2026.pdf received'],
+            ['api-gateway', 'INFO',  'Requesting placement from metadata-1'],
+            ['metadata-1',  'INFO',  'Placement computed: storage-1, storage-2, storage-3'],
+            ['api-gateway', 'INFO',  'Dispatching chunk writes to 3 nodes'],
+            ['storage-1',   'OK',    'Chunk written — sha256: a3f2...9c1'],
+            ['storage-2',   'OK',    'Chunk written — sha256: a3f2...9c1'],
+            ['storage-3',   'OK',    'Chunk written — sha256: a3f2...9c1'],
+            ['api-gateway', 'OK',    'Write quorum achieved (3/3). Committing.'],
+            ['metadata-1',  'OK',    'Object committed: obj-abc123'],
+            ['metadata-1',  'INFO',  '[Anti-Entropy] Repair cycle started'],
+            ['metadata-1',  'INFO',  '[Anti-Entropy] All 3 replicas healthy — no action needed'],
+            ['storage-2',   'WARN',  'Disk usage at 72% — approaching threshold'],
+            ['api-gateway', 'INFO',  'GET /objects/report-2026.pdf received'],
+            ['metadata-1',  'INFO',  'Resolving replicas for obj-abc123'],
+            ['storage-1',   'OK',    'Chunk served — checksum verified'],
+            ['api-gateway', 'OK',    'Read served in 12ms'],
+            ['storage-1',   'FAIL',  'Heartbeat LOST — node DEAD'],
+            ['metadata-1',  'WARN',  'Cluster degraded: 2/3 nodes healthy'],
+            ['metadata-1',  'INFO',  '[Anti-Entropy] Repair loop detected under-replication'],
+            ['metadata-1',  'WARN',  '[Anti-Entropy] 3 chunks under-replicated on storage-1'],
+            ['storage-1',   'INFO',  'Node reconnected to cluster'],
+            ['metadata-1',  'HEAL',  '[Repair] Orchestrating: storage-2 → storage-1'],
+            ['storage-2',   'HEAL',  'Chunk stream: 1/3 sent'],
+            ['storage-2',   'HEAL',  'Chunk stream: 2/3 sent'],
+            ['storage-2',   'HEAL',  'Chunk stream: 3/3 sent'],
+            ['storage-1',   'HEAL',  'All 3 chunks received and verified'],
+            ['metadata-1',  'HEAL',  '[Repair] storage-1 fully repaired — N=3 restored'],
+            ['metadata-1',  'OK',    'Cluster OPERATIONAL — all nodes healthy'],
+        ];
+
+        let delay = 0;
+        events.forEach(([comp, tag, msg]) => {
+            setTimeout(() => {
+                const ts = new Date().toLocaleTimeString('en', { hour12: false });
+                addLogRow(ts, comp, tag, msg);
+            }, delay);
+            delay += 250 + Math.random() * 150;
+        });
+    }
+
+    // Load persisted logs from other pages
+    function loadPersistedLogs() {
+        const feed = Store.get('logFeed', []);
+        feed.forEach(l => {
+            allLogs.push({ ts: l.ts, component: 'cluster', tag: l.tag, msg: l.msg });
+            counts.total++;
+            if (l.tag === 'OK')   counts.ok++;
+            if (l.tag === 'FAIL') counts.fail++;
+            if (l.tag === 'HEAL') counts.heal++;
+        });
+        updateCounts();
+        renderTable();
+    }
+
+    loadPersistedLogs();
+
+    // Add some boot events if empty
+    if (allLogs.length === 0) {
+        const ts = new Date().toLocaleTimeString('en', { hour12: false });
+        addLogRow(ts, 'metadata-1', 'OK',   'Vault cluster initialized');
+        addLogRow(ts, 'metadata-1', 'INFO', 'Leader election: metadata-1 elected');
+        addLogRow(ts, 'storage-1',  'OK',   'Storage node joined cluster');
+        addLogRow(ts, 'storage-2',  'OK',   'Storage node joined cluster');
+        addLogRow(ts, 'storage-3',  'OK',   'Storage node joined cluster');
+        addLogRow(ts, 'metadata-1', 'INFO', 'Anti-entropy repair loop armed (T=10s)');
+    }
+</script>
+</body>
+</html>

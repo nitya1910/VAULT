@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vault — Cluster Topology</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="shared.css">
+    <style>
+        .topo-layout { display: grid; grid-template-columns: 1fr 320px; gap: 1.5rem; }
+
+        /* Canvas area */
+        .topo-canvas-wrap {
+            position: relative; height: 520px;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        #topo-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+
+        .nodes-layer { position: relative; z-index: 2; width: 100%; height: 100%; }
+
+        /* Node cards positioned absolutely */
+        .topo-node {
+            position: absolute;
+            display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
+            cursor: pointer;
+        }
+
+        .node-shell {
+            width: 100px; height: 100px; border-radius: 24px;
+            border: 1px solid var(--glass-border);
+            background: rgba(5,9,20,0.9);
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.2rem;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            backdrop-filter: blur(16px);
+            position: relative;
+        }
+
+        .topo-node .n-emoji { font-size: 2rem; }
+        .topo-node .n-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+
+        .topo-node .n-caption {
+            font-size: 0.72rem; font-weight: 600; text-align: center;
+            white-space: nowrap;
+        }
+
+        .ping-dot {
+            position: absolute; top: -5px; right: -5px;
+            width: 14px; height: 14px; border-radius: 50%;
+            border: 2px solid var(--bg);
+        }
+
+        /* States */
+        .state-gateway .node-shell { border-color: rgba(6,182,212,0.6); box-shadow: 0 0 30px rgba(6,182,212,0.2); }
+        .state-gateway .ping-dot   { background: var(--cyan); box-shadow: 0 0 10px var(--cyan); animation: pgw 2s infinite; }
+
+        .state-leader .node-shell { border-color: rgba(245,158,11,0.6); box-shadow: 0 0 30px rgba(245,158,11,0.2); }
+        .state-leader .ping-dot   { background: var(--amber); box-shadow: 0 0 10px var(--amber); animation: pgw 2s infinite; }
+
+        .state-healthy .node-shell { border-color: rgba(16,185,129,0.6); box-shadow: 0 0 25px rgba(16,185,129,0.15); }
+        .state-healthy .ping-dot  { background: var(--green); box-shadow: 0 0 10px var(--green); animation: pgw 2s infinite; }
+
+        .state-dead .node-shell { border-color: rgba(239,68,68,0.5); opacity: 0.5; filter: grayscale(0.8); }
+        .state-dead .ping-dot   { background: var(--red); animation: pdead 0.8s infinite; }
+
+        .state-active .node-shell { transform: scale(1.08); border-color: white; box-shadow: 0 0 50px rgba(255,255,255,0.4) !important; }
+
+        @keyframes pgw   { 0%,100%{box-shadow:0 0 0 0 rgba(6,182,212,0.7)}  50%{box-shadow:0 0 0 8px rgba(6,182,212,0)} }
+        @keyframes pgw2  { 0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,0.7)} 50%{box-shadow:0 0 0 8px rgba(16,185,129,0)} }
+        @keyframes pdead { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+        /* Node tooltips */
+        .n-tooltip {
+            position: absolute; bottom: -2.5rem; left: 50%; transform: translateX(-50%);
+            white-space: nowrap; padding: 0.25rem 0.6rem; border-radius: 8px;
+            background: rgba(0,0,0,0.8); border: 1px solid var(--glass-border);
+            font-family: 'Space Mono', monospace; font-size: 0.65rem; color: var(--muted);
+            opacity: 0; transition: opacity 0.2s; pointer-events: none;
+        }
+        .topo-node:hover .n-tooltip { opacity: 1; }
+
+        /* Side panel */
+        .side-controls { display: flex; flex-direction: column; gap: 1rem; }
+
+        .node-ctrl-card {
+            background: rgba(255,255,255,0.02); border: 1px solid var(--glass-border);
+            border-radius: 16px; padding: 1rem 1.25rem;
+            display: flex; align-items: center; gap: 1rem;
+        }
+        .ctrl-icon { font-size: 1.8rem; }
+        .ctrl-meta { flex: 1; }
+        .ctrl-name { font-weight: 600; font-size: 0.9rem; }
+        .ctrl-url { font-family: 'Space Mono', monospace; font-size: 0.68rem; color: var(--muted); }
+        .ctrl-actions { display: flex; gap: 0.4rem; }
+        .ctrl-btn {
+            padding: 0.3rem 0.7rem; border-radius: 8px; border: none;
+            font-size: 0.75rem; font-weight: 600; cursor: pointer;
+            transition: all 0.2s ease; font-family: 'Space Grotesk', sans-serif;
+        }
+        .ctrl-btn.kill { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+        .ctrl-btn.kill:hover { background: rgba(239,68,68,0.3); }
+        .ctrl-btn.recover { background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid rgba(16,185,129,0.2); }
+        .ctrl-btn.recover:hover { background: rgba(16,185,129,0.3); }
+
+        .status-section { display: flex; flex-direction: column; gap: 0.75rem; }
+        .status-row { display: flex; justify-content: space-between; font-size: 0.85rem; }
+        .status-label { color: var(--muted); }
+
+        /* Data packet animation */
+        .packet {
+            position: absolute; pointer-events: none; z-index: 10;
+            width: 8px; height: 8px; border-radius: 50%;
+            background: white; box-shadow: 0 0 10px 2px rgba(255,255,255,0.5);
+        }
+    </style>
+</head>
+<body>
+<canvas id="particles"></canvas>
+
+<nav class="nav">
+    <a href="index.html" class="nav-logo">🔒 Vault</a>
+    <div class="nav-links">
+        <a href="index.html" class="nav-link">Dashboard</a>
+        <a href="upload.html" class="nav-link">Upload</a>
+        <a href="topology.html" class="nav-link active">Topology</a>
+        <a href="repair.html" class="nav-link">Self-Heal</a>
+        <a href="logs.html" class="nav-link">Logs</a>
+    </div>
+</nav>
+
+<div class="page-header">
+    <div class="breadcrumb">Cluster → Topology</div>
+    <h2>Live Cluster Topology</h2>
+    <p>Visualize node health, kill nodes to simulate failures, and observe quorum degradation in real time.</p>
+</div>
+
+<div class="page-body">
+    <div class="topo-layout">
+
+        <!-- Topology canvas -->
+        <div class="card" style="padding: 1.5rem;">
+            <div class="card-header">
+                <span class="card-title">Network Map</span>
+                <span class="chip" id="clusterStatus"><span class="chip-dot green"></span>OPERATIONAL</span>
+            </div>
+
+            <div class="topo-canvas-wrap">
+                <svg id="topo-svg"></svg>
+
+                <!-- Nodes absolutely positioned -->
+                <div class="nodes-layer" id="nodesLayer">
+                    <div class="topo-node state-gateway" id="n-gw" style="left: 50%; top: 5%; transform: translateX(-50%);">
+                        <div class="node-shell">
+                            <div class="ping-dot"></div>
+                            <div class="n-emoji">🌐</div>
+                            <div class="n-label">Gateway</div>
+                        </div>
+                        <div class="n-caption">API Gateway</div>
+                        <div class="n-tooltip">:8080 · Quorum Coordinator</div>
+                    </div>
+
+                    <div class="topo-node state-leader" id="n-meta" style="left: 50%; top: 37%; transform: translateX(-50%);">
+                        <div class="node-shell">
+                            <div class="ping-dot"></div>
+                            <div class="n-emoji">🧠</div>
+                            <div class="n-label">Metadata</div>
+                        </div>
+                        <div class="n-caption">metadata-1 · Leader</div>
+                        <div class="n-tooltip">:8000 · SQLite + Repair Loop</div>
+                    </div>
+
+                    <div class="topo-node state-healthy" id="n-s1" style="left: 16%; top: 70%;">
+                        <div class="node-shell">
+                            <div class="ping-dot"></div>
+                            <div class="n-emoji">💾</div>
+                            <div class="n-label">Storage</div>
+                        </div>
+                        <div class="n-caption">storage-1</div>
+                        <div class="n-tooltip">:9001 · <span id="tt-s1">healthy</span></div>
+                    </div>
+
+                    <div class="topo-node state-healthy" id="n-s2" style="left: 50%; top: 70%; transform: translateX(-50%);">
+                        <div class="node-shell">
+                            <div class="ping-dot"></div>
+                            <div class="n-emoji">💾</div>
+                            <div class="n-label">Storage</div>
+                        </div>
+                        <div class="n-caption">storage-2</div>
+                        <div class="n-tooltip">:9002 · <span id="tt-s2">healthy</span></div>
+                    </div>
+
+                    <div class="topo-node state-healthy" id="n-s3" style="right: 16%; top: 70%;">
+                        <div class="node-shell">
+                            <div class="ping-dot"></div>
+                            <div class="n-emoji">💾</div>
+                            <div class="n-label">Storage</div>
+                        </div>
+                        <div class="n-caption">storage-3</div>
+                        <div class="n-tooltip">:9003 · <span id="tt-s3">healthy</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Side panel -->
+        <div class="side-controls">
+            <div class="card" style="padding: 1.5rem;">
+                <div class="card-header" style="margin-bottom: 1rem;">
+                    <span class="card-title">Cluster Health</span>
+                </div>
+                <div class="status-section">
+                    <div class="status-row"><span class="status-label">Healthy Nodes</span><span id="healthyCount" style="font-family: 'Space Mono', monospace; color: var(--green);">3 / 3</span></div>
+                    <div class="status-row"><span class="status-label">Write Quorum</span><span id="wqStatus" style="font-family: 'Space Mono', monospace; color: var(--green);">✓ MET</span></div>
+                    <div class="status-row"><span class="status-label">Read Quorum</span><span id="rqStatus" style="font-family: 'Space Mono', monospace; color: var(--green);">✓ MET</span></div>
+                    <div class="status-row"><span class="status-label">Fault Tolerance</span><span style="font-family: 'Space Mono', monospace; color: var(--cyan);">1 node</span></div>
+                </div>
+            </div>
+
+            <div class="card" style="padding: 1.5rem;">
+                <div class="card-header" style="margin-bottom: 1rem;">
+                    <span class="card-title">Node Controls</span>
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    <div class="node-ctrl-card">
+                        <div class="ctrl-icon">💾</div>
+                        <div class="ctrl-meta">
+                            <div class="ctrl-name">storage-1</div>
+                            <div class="ctrl-url" id="s1-status-txt">healthy · :9001</div>
+                        </div>
+                        <div class="ctrl-actions">
+                            <button class="ctrl-btn kill" id="kill-s1" onclick="killNode('s1')">Kill</button>
+                            <button class="ctrl-btn recover" id="rec-s1" onclick="recoverNode('s1')" disabled style="opacity:0.4">Heal</button>
+                        </div>
+                    </div>
+
+                    <div class="node-ctrl-card">
+                        <div class="ctrl-icon">💾</div>
+                        <div class="ctrl-meta">
+                            <div class="ctrl-name">storage-2</div>
+                            <div class="ctrl-url" id="s2-status-txt">healthy · :9002</div>
+                        </div>
+                        <div class="ctrl-actions">
+                            <button class="ctrl-btn kill" id="kill-s2" onclick="killNode('s2')">Kill</button>
+                            <button class="ctrl-btn recover" id="rec-s2" onclick="recoverNode('s2')" disabled style="opacity:0.4">Heal</button>
+                        </div>
+                    </div>
+
+                    <div class="node-ctrl-card">
+                        <div class="ctrl-icon">💾</div>
+                        <div class="ctrl-meta">
+                            <div class="ctrl-name">storage-3</div>
+                            <div class="ctrl-url" id="s3-status-txt">healthy · :9003</div>
+                        </div>
+                        <div class="ctrl-actions">
+                            <button class="ctrl-btn kill" id="kill-s3" onclick="killNode('s3')">Kill</button>
+                            <button class="ctrl-btn recover" id="rec-s3" onclick="recoverNode('s3')" disabled style="opacity:0.4">Heal</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="padding: 0;">
+                <div class="terminal-bar">
+                    <div class="term-dot" style="background:#ef4444"></div>
+                    <div class="term-dot" style="background:#f59e0b"></div>
+                    <div class="term-dot" style="background:#10b981"></div>
+                    <span style="margin-left:0.5rem">topology.log</span>
+                </div>
+                <div class="terminal-body" id="topoLog" style="height:180px; overflow-y:auto;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="shared.js"></script>
+<script>
+    const log = (m, t='INFO') => appendLog('topoLog', m, t);
+    const NODES = { s1: true, s2: true, s3: true };
+
+    function updateClusterStatus() {
+        const alive = Object.values(NODES).filter(Boolean).length;
+        document.getElementById('healthyCount').textContent = `${alive} / 3`;
+        document.getElementById('healthyCount').style.color = alive >= 2 ? 'var(--green)' : 'var(--red)';
+        document.getElementById('wqStatus').textContent = alive >= 2 ? '✓ MET' : '✗ NOT MET';
+        document.getElementById('wqStatus').style.color = alive >= 2 ? 'var(--green)' : 'var(--red)';
+        document.getElementById('rqStatus').textContent = alive >= 2 ? '✓ MET' : '✗ NOT MET';
+        document.getElementById('rqStatus').style.color = alive >= 2 ? 'var(--green)' : 'var(--red)';
+
+        const chip = document.getElementById('clusterStatus');
+        if (alive === 3) chip.innerHTML = '<span class="chip-dot green"></span>OPERATIONAL';
+        else if (alive === 2) chip.innerHTML = '<span class="chip-dot amber"></span>DEGRADED';
+        else chip.innerHTML = '<span class="chip-dot red"></span>CRITICAL';
+
+        // Persist dead nodes for upload page
+        Store.set('deadNodes', Object.keys(NODES).filter(n => !NODES[n]));
+    }
+
+    function killNode(id) {
+        if (!NODES[id]) return;
+        NODES[id] = false;
+        document.getElementById('n-' + id).className = 'topo-node state-dead';
+        document.getElementById('tt-' + id).textContent = 'DEAD';
+        document.getElementById(`s${id.slice(1)}-status-txt`).textContent = 'DEAD · connection refused';
+        document.getElementById('kill-' + id).disabled = true;
+        document.getElementById('kill-' + id).style.opacity = '0.4';
+        document.getElementById('rec-' + id).disabled = false;
+        document.getElementById('rec-' + id).style.opacity = '1';
+        log(`storage-${id.slice(1)} heartbeat LOST — node marked DEAD`, 'FAIL');
+        updateClusterStatus();
+    }
+
+    function recoverNode(id) {
+        if (NODES[id]) return;
+        NODES[id] = true;
+        document.getElementById('n-' + id).className = 'topo-node state-healthy';
+        document.getElementById('tt-' + id).textContent = 'healthy';
+        document.getElementById(`s${id.slice(1)}-status-txt`).textContent = `healthy · :900${id.slice(1)}`;
+        document.getElementById('kill-' + id).disabled = false;
+        document.getElementById('kill-' + id).style.opacity = '1';
+        document.getElementById('rec-' + id).disabled = true;
+        document.getElementById('rec-' + id).style.opacity = '0.4';
+        log(`storage-${id.slice(1)} recovered — rejoining cluster`, 'OK');
+        updateClusterStatus();
+    }
+
+    // Draw SVG connections between nodes
+    function drawLines() {
+        const svg = document.getElementById('topo-svg');
+        svg.innerHTML = '';
+        const wrap = document.querySelector('.topo-canvas-wrap');
+        const wRect = wrap.getBoundingClientRect();
+
+        function center(el) {
+            const shell = el.querySelector('.node-shell');
+            const r = shell.getBoundingClientRect();
+            return {
+                x: r.left + r.width/2 - wRect.left,
+                y: r.top  + r.height/2 - wRect.top
+            };
+        }
+
+        const gw   = center(document.getElementById('n-gw'));
+        const meta = center(document.getElementById('n-meta'));
+        const s1   = center(document.getElementById('n-s1'));
+        const s2   = center(document.getElementById('n-s2'));
+        const s3   = center(document.getElementById('n-s3'));
+
+        function addLine(a, b, color, dead = false) {
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+            line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+            line.setAttribute('stroke', dead ? 'rgba(239,68,68,0.3)' : color);
+            line.setAttribute('stroke-width', '1.5');
+            line.setAttribute('stroke-dasharray', dead ? '4 6' : '6 4');
+            if (!dead) {
+                const anim = document.createElementNS('http://www.w3.org/2000/svg','animate');
+                anim.setAttribute('attributeName','stroke-dashoffset');
+                anim.setAttribute('from','0'); anim.setAttribute('to','-20');
+                anim.setAttribute('dur','1.5s'); anim.setAttribute('repeatCount','indefinite');
+                line.appendChild(anim);
+            }
+            svg.appendChild(line);
+        }
+
+        addLine(gw, meta, 'rgba(6,182,212,0.3)');
+        addLine(meta, s1, NODES.s1 ? 'rgba(16,185,129,0.3)' : '', !NODES.s1);
+        addLine(meta, s2, NODES.s2 ? 'rgba(16,185,129,0.3)' : '', !NODES.s2);
+        addLine(meta, s3, NODES.s3 ? 'rgba(16,185,129,0.3)' : '', !NODES.s3);
+    }
+
+    window.addEventListener('load', () => { setTimeout(drawLines, 200); });
+    window.addEventListener('resize', () => setTimeout(drawLines, 100));
+
+    // Redraws when node state changes
+    const origKill = killNode, origRecover = recoverNode;
+    window.killNode = id => { origKill(id); setTimeout(drawLines, 100); };
+    window.recoverNode = id => { origRecover(id); setTimeout(drawLines, 100); };
+
+    // Restore state from sessionStorage
+    const dead = Store.get('deadNodes', []);
+    dead.forEach(id => { if (NODES[id] !== undefined) killNode(id); });
+
+    log('Topology viewer initialised — 5 nodes detected', 'INFO');
+    log('Gateway, Metadata Leader, and 3 Storage nodes online', 'OK');
+</script>
+</body>
+</html>

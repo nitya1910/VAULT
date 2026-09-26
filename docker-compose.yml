@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  metadata-1:
+    build: 
+      context: .
+      dockerfile: docker/Dockerfile.metadata
+    ports:
+      - "8001:8000"
+    environment:
+      - NODE_ID=metadata-1
+      - IS_LEADER=true
+
+  api-gateway:
+    build: 
+      context: .
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ID=api-gateway
+      - METADATA_URL=http://metadata-1:8000
+      - PORT=8080
+
+  storage-1:
+    build: 
+      context: .
+      dockerfile: docker/Dockerfile.storage
+    ports:
+      - "9001:9000"
+    volumes:
+      - storage-1-data:/data
+    environment:
+      - NODE_ID=storage-1
+      - METADATA_URL=http://metadata-1:8000
+
+  storage-2:
+    build: 
+      context: .
+      dockerfile: docker/Dockerfile.storage
+    ports:
+      - "9002:9000"
+    volumes:
+      - storage-2-data:/data
+    environment:
+      - NODE_ID=storage-2
+      - METADATA_URL=http://metadata-1:8000
+
+  storage-3:
+    build: 
+      context: .
+      dockerfile: docker/Dockerfile.storage
+    ports:
+      - "9003:9000"
+    volumes:
+      - storage-3-data:/data
+    environment:
+      - NODE_ID=storage-3
+      - METADATA_URL=http://metadata-1:8000
+
+volumes:
+  storage-1-data:
+  storage-2-data:
+  storage-3-data:

@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vault — Upload Object</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="shared.css">
+    <style>
+        .layout { display: grid; grid-template-columns: 420px 1fr; gap: 1.5rem; }
+
+        /* Drop zone */
+        .drop-zone {
+            border: 2px dashed rgba(37,99,235,0.35); border-radius: 20px;
+            padding: 3rem 2rem; text-align: center;
+            background: rgba(37,99,235,0.04); cursor: pointer;
+            transition: all 0.3s ease; position: relative; overflow: hidden;
+        }
+        .drop-zone:hover { border-color: var(--blue); background: rgba(37,99,235,0.08); }
+        .drop-zone.dragging { border-color: var(--cyan); background: rgba(6,182,212,0.1); }
+
+        .orb {
+            width: 90px; height: 90px; margin: 0 auto 1.5rem;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, var(--blue), var(--purple), var(--cyan), var(--blue));
+            display: flex; align-items: center; justify-content: center;
+            font-size: 2rem;
+            animation: spin 6s linear infinite;
+            box-shadow: 0 0 40px rgba(37,99,235,0.4);
+            position: relative;
+        }
+        .orb::after {
+            content: '☁️'; position: absolute;
+            width: 72px; height: 72px; border-radius: 50%;
+            background: var(--bg);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 2rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .drop-zone:hover .orb { box-shadow: 0 0 60px rgba(37,99,235,0.7); }
+
+        .drop-zone h3 { font-size: 1.2rem; font-weight: 700; margin-bottom: 0.5rem; }
+        .drop-zone p { color: var(--muted); font-size: 0.875rem; }
+
+        .file-input { display: none; }
+
+        /* File details */
+        .file-info {
+            background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border);
+            border-radius: 14px; padding: 1rem 1.25rem;
+            font-family: 'Space Mono', monospace; font-size: 0.8rem;
+            display: none; gap: 0.75rem; flex-direction: column;
+        }
+        .file-info.show { display: flex; }
+        .fi-row { display: flex; justify-content: space-between; }
+        .fi-label { color: var(--muted); }
+        .fi-val { color: var(--text); }
+
+        /* Key field */
+        .key-field {
+            display: flex; gap: 0.75rem; align-items: center;
+        }
+        .key-input {
+            flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border);
+            border-radius: 12px; padding: 0.75rem 1rem;
+            color: var(--text); font-family: 'Space Mono', monospace; font-size: 0.875rem;
+            outline: none; transition: border-color 0.2s;
+        }
+        .key-input:focus { border-color: rgba(37,99,235,0.6); }
+        .key-input::placeholder { color: var(--muted); }
+
+        /* Replication status */
+        .nodes-grid { display: flex; flex-direction: column; gap: 1rem; }
+
+        .node-row {
+            display: flex; align-items: center; gap: 1rem;
+            padding: 1rem 1.25rem; border-radius: 14px;
+            border: 1px solid var(--glass-border);
+            background: rgba(255,255,255,0.02);
+            transition: all 0.3s ease;
+        }
+        .node-row .node-icon { font-size: 1.5rem; }
+        .node-meta { flex: 1; }
+        .node-name { font-weight: 600; font-size: 0.9rem; }
+        .node-url { font-family: 'Space Mono', monospace; font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+        .node-status {
+            font-family: 'Space Mono', monospace; font-size: 0.75rem;
+            padding: 0.2rem 0.65rem; border-radius: 8px;
+        }
+
+        .node-row.idle .node-status { background: rgba(255,255,255,0.05); color: var(--muted); }
+        .node-row.writing .node-status { background: rgba(37,99,235,0.2); color: var(--cyan); }
+        .node-row.success .node-status { background: rgba(16,185,129,0.15); color: var(--green); }
+        .node-row.failed .node-status { background: rgba(239,68,68,0.15); color: var(--red); }
+
+        /* Progress bar */
+        .progress-track {
+            height: 4px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%; width: 0%; border-radius: 4px;
+            background: linear-gradient(90deg, var(--blue), var(--cyan));
+            transition: width 0.6s ease;
+            box-shadow: 0 0 10px rgba(6,182,212,0.5);
+        }
+
+        /* Result banner */
+        .result-banner {
+            padding: 1rem 1.25rem; border-radius: 14px;
+            font-size: 0.875rem; display: none;
+        }
+        .result-banner.success { background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); color: var(--green); }
+        .result-banner.error   { background: rgba(239,68,68,0.1);  border: 1px solid rgba(239,68,68,0.3);  color: var(--red); }
+
+        .checksum-box {
+            font-family: 'Space Mono', monospace; font-size: 0.7rem;
+            word-break: break-all; margin-top: 0.5rem;
+            padding: 0.5rem; background: rgba(0,0,0,0.3);
+            border-radius: 8px; color: var(--muted);
+        }
+    </style>
+</head>
+<body>
+<canvas id="particles"></canvas>
+
+<nav class="nav">
+    <a href="index.html" class="nav-logo">🔒 Vault</a>
+    <div class="nav-links">
+        <a href="index.html" class="nav-link">Dashboard</a>
+        <a href="upload.html" class="nav-link active">Upload</a>
+        <a href="topology.html" class="nav-link">Topology</a>
+        <a href="repair.html" class="nav-link">Self-Heal</a>
+        <a href="logs.html" class="nav-link">Logs</a>
+    </div>
+</nav>
+
+<div class="page-header">
+    <div class="breadcrumb">Object Storage → Upload</div>
+    <h2>Upload Object</h2>
+    <p>Files are chunked, checksummed with SHA-256, and replicated to storage nodes using W=2 Quorum.</p>
+</div>
+
+<div class="page-body">
+    <div class="layout">
+        <!-- Left: Upload controls -->
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+
+            <div class="card" style="padding: 2rem;">
+                <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+                    <div class="orb"></div>
+                    <h3>Drop file here</h3>
+                    <p>or click to browse</p>
+                </div>
+                <input type="file" id="fileInput" class="file-input">
+
+                <div class="file-info" id="fileInfo" style="margin-top: 1rem;">
+                    <div class="fi-row"><span class="fi-label">Name</span><span class="fi-val" id="fi-name">—</span></div>
+                    <div class="fi-row"><span class="fi-label">Size</span><span class="fi-val" id="fi-size">—</span></div>
+                    <div class="fi-row"><span class="fi-label">Type</span><span class="fi-val" id="fi-type">—</span></div>
+                </div>
+            </div>
+
+            <div class="card" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+                <div class="card-title">Object Key</div>
+                <div class="key-field">
+                    <input type="text" class="key-input" id="objectKey" placeholder="e.g. photos/vacation.jpg" value="">
+                </div>
+                <button class="btn btn-primary" id="uploadBtn" onclick="doUpload()" style="width: 100%;">
+                    ☁️ &nbsp;Upload &amp; Replicate
+                </button>
+
+                <div class="result-banner" id="resultBanner"></div>
+            </div>
+        </div>
+
+        <!-- Right: Replication status + log -->
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+            <div class="card" style="padding: 1.5rem;">
+                <div class="card-header" style="margin-bottom: 0;">
+                    <span class="card-title">Replication Status</span>
+                    <span class="chip"><span class="chip-dot cyan"></span>N=3 &nbsp;·&nbsp; W=2</span>
+                </div>
+
+                <div style="padding: 1.5rem 0 0;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.5rem;">
+                        <span>Quorum progress</span>
+                        <span id="quorum-count">0 / 3 nodes</span>
+                    </div>
+                    <div class="progress-track" style="margin-bottom: 1.5rem;">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                </div>
+
+                <div class="nodes-grid" id="nodesGrid">
+                    <div class="node-row idle" id="row-s1">
+                        <div class="node-icon">💾</div>
+                        <div class="node-meta">
+                            <div class="node-name">storage-1</div>
+                            <div class="node-url">http://storage-1:9000</div>
+                        </div>
+                        <div class="node-status" id="st-s1">IDLE</div>
+                    </div>
+                    <div class="node-row idle" id="row-s2">
+                        <div class="node-icon">💾</div>
+                        <div class="node-meta">
+                            <div class="node-name">storage-2</div>
+                            <div class="node-url">http://storage-2:9000</div>
+                        </div>
+                        <div class="node-status" id="st-s2">IDLE</div>
+                    </div>
+                    <div class="node-row idle" id="row-s3">
+                        <div class="node-icon">💾</div>
+                        <div class="node-meta">
+                            <div class="node-name">storage-3</div>
+                            <div class="node-url">http://storage-3:9000</div>
+                        </div>
+                        <div class="node-status" id="st-s3">IDLE</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="padding: 0;">
+                <div class="terminal-bar">
+                    <div class="term-dot" style="background:#ef4444"></div>
+                    <div class="term-dot" style="background:#f59e0b"></div>
+                    <div class="term-dot" style="background:#10b981"></div>
+                    <span style="margin-left: 0.5rem;">upload.log</span>
+                </div>
+                <div class="terminal-body" id="uploadLog" style="height: 220px; overflow-y: auto;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="shared.js"></script>
+<script>
+    const log = (m, t='INFO') => appendLog('uploadLog', m, t);
+    let selectedFile = null;
+    let uploadCount = 0;
+
+    // Drag & drop
+    const dz = document.getElementById('dropZone');
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragging'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('dragging'));
+    dz.addEventListener('drop', e => {
+        e.preventDefault(); dz.classList.remove('dragging');
+        const f = e.dataTransfer.files[0];
+        if (f) setFile(f);
+    });
+
+    document.getElementById('fileInput').addEventListener('change', e => {
+        if (e.target.files[0]) setFile(e.target.files[0]);
+    });
+
+    function setFile(f) {
+        selectedFile = f;
+        document.getElementById('fileInfo').classList.add('show');
+        document.getElementById('fi-name').textContent = f.name;
+        document.getElementById('fi-size').textContent = formatBytes(f.size);
+        document.getElementById('fi-type').textContent = f.type || 'application/octet-stream';
+        if (!document.getElementById('objectKey').value) {
+            document.getElementById('objectKey').value = f.name;
+        }
+        log(`File selected: ${f.name} (${formatBytes(f.size)})`, 'INFO');
+    }
+
+    function formatBytes(b) {
+        if (b < 1024) return b + ' B';
+        if (b < 1024**2) return (b/1024).toFixed(1) + ' KB';
+        return (b/1024**2).toFixed(2) + ' MB';
+    }
+
+    function setNodeState(nodeId, state, statusText) {
+        const row = document.getElementById('row-' + nodeId);
+        const st  = document.getElementById('st-' + nodeId);
+        row.className = 'node-row ' + state;
+        st.textContent = statusText;
+    }
+
+    function setProgress(n) {
+        document.getElementById('quorum-count').textContent = `${n} / 3 nodes`;
+        document.getElementById('progressFill').style.width = `${(n/3)*100}%`;
+    }
+
+    async function doUpload() {
+        const key = document.getElementById('objectKey').value.trim();
+        if (!key) { log('Object key is required', 'WARN'); return; }
+
+        const btn = document.getElementById('uploadBtn');
+        const banner = document.getElementById('resultBanner');
+        btn.disabled = true;
+        banner.style.display = 'none';
+        setProgress(0);
+        ['s1','s2','s3'].forEach(n => setNodeState(n, 'idle', 'IDLE'));
+
+        log(`PUT /${key}`, 'INFO');
+        log('Requesting placement from Metadata Leader...', 'INFO');
+
+        await delay(400);
+
+        // Determine which "nodes" are alive (from topology page state)
+        const deadNodes = Store.get('deadNodes', []);
+        const nodes = ['s1','s2','s3'].filter(n => !deadNodes.includes(n));
+
+        if (nodes.length < 2) {
+            log(`Placement FAILED: only ${nodes.length} node(s) available, W=2 not achievable`, 'FAIL');
+            showBanner('error', `Write Quorum FAILED — only ${nodes.length} node(s) healthy. Need ≥ 2.`);
+            btn.disabled = false;
+            return;
+        }
+
+        log(`Placement OK → ${nodes.length} node(s): ${nodes.map(n=>'storage-'+n.slice(1)).join(', ')}`, 'INFO');
+
+        // Generate fake SHA-256 checksum
+        const fakeHash = Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random()*16)]).join('');
+        const objectId = 'obj-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,6);
+
+        // Start writing concurrently (simulated with stagger)
+        nodes.forEach(n => setNodeState(n, 'writing', 'WRITING…'));
+
+        let successes = 0;
+        const writePromises = nodes.map(async (n, i) => {
+            await delay(300 + i * 150 + Math.random() * 200);
+            const fail = Math.random() < 0.05; // 5% chance of failure per node
+            if (fail) {
+                setNodeState(n, 'failed', 'ERROR');
+                log(`storage-${n.slice(1)} → write error (simulated timeout)`, 'FAIL');
+            } else {
+                setNodeState(n, 'success', 'WRITTEN ✓');
+                successes++;
+                setProgress(successes);
+                log(`storage-${n.slice(1)} → chunk written, checksum verified`, 'OK');
+            }
+        });
+
+        await Promise.all(writePromises);
+
+        await delay(300);
+
+        if (successes >= 2) {
+            log(`Quorum achieved (${successes}/3). Committing to Metadata...`, 'INFO');
+            await delay(350);
+            log(`Metadata committed. object_id=${objectId}`, 'OK');
+
+            uploadCount++;
+            Store.inc('uploadCount');
+
+            showBanner('success', `
+                <strong>Upload successful!</strong> &nbsp;${successes}/3 replicas written.<br>
+                <div class="checksum-box">object_id: ${objectId}<br>sha256: ${fakeHash}</div>
+            `);
+        } else {
+            log(`Quorum FAILED (${successes}/3 written, need 2)`, 'FAIL');
+            showBanner('error', `Write Quorum FAILED — only ${successes} replica(s) written.`);
+        }
+
+        btn.disabled = false;
+    }
+
+    function showBanner(type, html) {
+        const b = document.getElementById('resultBanner');
+        b.className = 'result-banner ' + type;
+        b.innerHTML = html;
+        b.style.display = 'block';
+    }
+
+    function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    // Init log
+    log('Upload module ready. Select a file and click Upload.', 'INFO');
+</script>
+</body>
+</html>
